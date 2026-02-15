@@ -1,0 +1,112 @@
+# Load required libraries ---------------------------------------------------
+library(MASS)        # Contains the example 'survey' dataset
+library(dplyr)       # Data manipulation (select, filter, mutate, etc.)
+library(tibble)      # For creating tibbles and working with tidy data
+library(ComplexUpset) # For creating advanced UpSet plots
+library(ggplot2)     # Plotting framework used by ComplexUpset
+
+# Load example dataset -----------------------------------------------------
+# The MASS::survey dataset contains demographic and lifestyle survey responses
+data(survey)
+
+# Inspect the dataset (optional)
+# head(survey)
+# str(survey)
+
+# Select three categorical variables for intersection analysis
+df <- survey %>%
+  select(Sex, Smoke, Exer) %>%              # keep only relevant columns
+  filter(complete.cases(.)) %>%             # remove rows with missing values
+  mutate(across(everything(), as.character)) # convert factors to character
+# Why convert to character? ComplexUpset works better with logical indicator columns.
+
+# Function to create indicator (dummy) columns for a categorical variable ----
+# Input: 
+#   x      - categorical vector (e.g., df$Sex)
+#   prefix - prefix for naming the new indicator columns
+# Output:
+#   tibble of TRUE/FALSE columns, one per level of the factor
+make_indicator_cols <- function(x, prefix) {
+  lvls <- sort(unique(x))  # get all unique values in sorted order
+  # For each level, create a column where TRUE if row matches the level
+  as_tibble(setNames(
+    lapply(lvls, function(l) x == l),
+    paste0(prefix, ": ", lvls)  # column names like "Sex: Male"
+  ))
+}
+
+# Apply function to each variable -------------------------------------------
+sets_sex   <- make_indicator_cols(df$Sex,   "Sex")
+sets_smoke <- make_indicator_cols(df$Smoke, "Smoke")
+sets_exer  <- make_indicator_cols(df$Exer,  "Exer")
+
+# Combine all indicator columns into one data frame -------------------------
+df_sets  <- bind_cols(sets_sex, sets_smoke, sets_exer)
+set_cols <- names(df_sets)  # store column names for reference in UpSet plots
+
+# Basic UpSet plot: exactly 3-way intersections --------------------------------
+p_min <- upset(
+  df_sets,
+  intersect = set_cols,     # columns to use for intersections
+  min_degree = 3,           # include intersections of exactly 3 sets
+  max_degree = 3,
+  min_size   = 1,           # only show intersections with at least 1 row
+  sort_intersections = "descending",  # largest intersections on top
+  base_annotations = list(
+    "Intersection size" = intersection_size() # default plot showing sizes
+  ),
+  width_ratio = 0.28        # width of the set size plots relative to intersection plot
+)
+p_min  # display the basic plot
+
+# Enhanced UpSet plot with counts -------------------------------------------
+# Adds labels for intersection counts, a title, and formatting
+p <- upset(
+  df_sets,
+  intersect = set_cols,
+  min_degree = 3,
+  max_degree = 3,
+  min_size   = 1,
+  sort_intersections = "descending",
+  base_annotations = list(
+    "Intersection size" = intersection_size(
+      text = list(
+        aes(label = ..count..),  # label with intersection count
+        vjust = -0.3, size = 3.2
+      )
+    )
+  ),
+  width_ratio = 0.28
+) +
+  labs(
+    title = "Intersectionality: Sex × Smoking × Exercise (MASS::survey)",
+    subtitle = "Exactly 3-way intersections; labels show counts"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.y = element_text(size = 8)  # reduce y-axis text size for readability
+  )
+
+p  # display enhanced plot
+
+# Filtered UpSet plot: remove small intersections ----------------------------
+# Demonstrates filtering by minimum intersection size
+min_cut <- 2L  # can adjust to 2, 3, 5 depending on desired threshold
+p_filtered <- upset(
+  df_sets,
+  intersect = set_cols,
+  min_degree = 3,
+  max_degree = 3,
+  min_size   = min_cut,  # only show intersections with at least 'min_cut' rows
+  sort_intersections = "descending",
+  base_annotations = list(
+    "Intersection size" = intersection_size(
+      text = list(
+        aes(label = ..count..), 
+        vjust = -0.3, size = 3.2
+      )
+    )
+  ),
+  width_ratio = 0.28
+)
+p_filtered  # display filtered plot
